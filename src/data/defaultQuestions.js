@@ -4,7 +4,13 @@
 let n = 0;
 const q = (section, en) => ({ id: `q${++n}`, section, en });
 
+// Fixed id (not part of the q1, q2… sequence) so inserting it at the front
+// doesn't renumber every other question and invalidate existing translations
+// or in-progress interviews' saved answers, which are keyed by question id.
+const intro = { id: "q0", section: "Intro", en: "Morning! I'm interviewing scrap/waste collectors for some research — happy to grab you a coke if you can spare a few minutes for some questions." };
+
 export const defaultQuestions = [
+  intro,
   q("Profile", "How long have you been collecting scrap metal?"),
   q("Profile", "Is this the only work you do?"),
   q("Profile", "What other work do you do?"),
