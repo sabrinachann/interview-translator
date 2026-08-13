@@ -145,13 +145,36 @@ instead: tap it and use the keyboard's built-in dictation (microphone icon)
 to fill it by voice — no in-app code needed. Playing questions aloud via
 `speechSynthesis` works fine on iOS as-is.
 
+### Known limitation: Bluetooth audio routing on iOS Safari
+
+iOS Safari has a known, inconsistent quirk where `speechSynthesis` audio
+sometimes plays from the iPhone's built-in speaker instead of a connected
+Bluetooth speaker/headphones, even though other audio (e.g. a real
+`<audio>`/`<video>` element, or YouTube) correctly routes to Bluetooth.
+`src/lib/speech.js` works around this by silently playing a real, silent
+`<audio>` element once on the first `speak()` call (which only ever happens
+inside a user tap), before any `speechSynthesis` call — the idea being that
+this nudges the page's audio session into the "playback" category that
+`speechSynthesis` doesn't reliably establish on its own, which Bluetooth
+routing tends to follow.
+
+**This is a best-effort mitigation, not a guaranteed fix.** It's a documented
+community workaround, not something Apple documents or commits to, and
+behavior has been reported to vary across iOS versions and devices. If
+question audio still comes out of the iPhone speaker instead of your
+Bluetooth speaker after this change, that's a known limitation of iOS
+Safari's audio session handling, not a bug in the app's logic — the only
+fully reliable workaround at that point would be routing playback through a
+real `<audio>` element with pre-recorded/streamed speech instead of the
+`speechSynthesis` API, which is a larger change.
+
 ## Project layout
 
 ```
 server/index.js          Express server — the only place that holds your API key
 src/data/defaultQuestions.js   Default question set (edit to change what loads for new interviews)
 src/lib/translate.js     Client → /api/translate helper
-src/lib/speech.js        Browser TTS (speak) + STT (startListening) wrappers
+src/lib/speech.js        Browser TTS (speak) wrapper, with an iOS Bluetooth-routing workaround
 src/lib/storage.js       localStorage-backed interview persistence
 src/components/Home.jsx  Interview list + creation form
 src/components/Session.jsx  The interview flow itself
