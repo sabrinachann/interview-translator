@@ -11,6 +11,7 @@ import {
   getInterviewDb,
   saveInterviewDb,
   deleteInterviewDb,
+  pingDb,
 } from "./db.js";
 
 dotenv.config();
@@ -43,6 +44,19 @@ app.post("/api/translate", async (req, res) => {
     }
     console.error(err);
     res.status(500).json({ error: "Translation failed" });
+  }
+});
+
+// Lets the client show an honest "backed up" vs "local only" status instead
+// of silently assuming server-side persistence works.
+app.get("/api/health", async (req, res) => {
+  if (!dbEnabled) return res.json({ dbConfigured: false, dbConnected: false });
+  try {
+    await pingDb();
+    res.json({ dbConfigured: true, dbConnected: true });
+  } catch (err) {
+    console.error("Health check DB ping failed:", err);
+    res.json({ dbConfigured: true, dbConnected: false });
   }
 });
 

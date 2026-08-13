@@ -47,3 +47,11 @@ export async function saveInterviewDb(interview) {
 export async function deleteInterviewDb(id) {
   await pool.query("DELETE FROM interviews WHERE id = $1", [id]);
 }
+
+// Used by /api/health so the client can show an honest "backed up" vs
+// "local only" status instead of silently assuming the database works.
+export async function pingDb() {
+  if (!dbEnabled) return false;
+  await pool.query("SELECT 1");
+  return true;
+}

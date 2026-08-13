@@ -1,10 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { listInterviews, createInterview, deleteInterview, syncInterviewsFromServer } from "../lib/storage.js";
+import {
+  listInterviews,
+  createInterview,
+  deleteInterview,
+  syncInterviewsFromServer,
+  checkServerHealth,
+} from "../lib/storage.js";
 import { LANGUAGES, getLanguage } from "../data/languages.js";
 
 export default function Home({ onOpen }) {
   const [interviews, setInterviews] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [health, setHealth] = useState(null); // { dbConfigured, dbConnected } | null while checking
   const [form, setForm] = useState({
     name: "",
     interviewee: "",
@@ -16,11 +23,12 @@ export default function Home({ onOpen }) {
   const refresh = () => setInterviews(listInterviews());
   useEffect(() => {
     refresh();
-    // Server is the source of truth when a database is configured — refresh
-    // the local cache from it on load and re-render if anything changed.
-    syncInterviewsFromServer().then((serverList) => {
-      if (serverList) refresh();
+    // The server never gets to erase local data — a sync only ever adds or
+    // updates interviews the server actually had a strictly newer copy of.
+    syncInterviewsFromServer().then((changed) => {
+      if (changed) refresh();
     });
+    checkServerHealth().then(setHealth);
   }, []);
 
   const handleCreate = () => {
@@ -50,6 +58,14 @@ export default function Home({ onOpen }) {
         Start a new interview or pick up where you left off. Every interview
         keeps its own transcript, saved on this device.
       </p>
+
+      {health && (
+        <p className={health.dbConnected ? "it-status-ok" : "it-status-warn"}>
+          {health.dbConnected
+            ? "☁️ Backed up — interviews also saved to the server"
+            : "⚠️ Local only — no cloud backup configured"}
+        </p>
+      )}
 
       <div className="it-card">
         {!showForm ? (

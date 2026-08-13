@@ -25,10 +25,10 @@ export default function Session({ interviewId, onHome }) {
   useEffect(() => {
     const loaded = getInterview(interviewId);
     setInterview(loaded);
-    // Server is the source of truth when a database is configured — refresh
-    // from it once loaded, so the local cache never silently stays stale.
-    syncInterviewFromServer(interviewId).then((serverCopy) => {
-      if (serverCopy) setInterview(serverCopy);
+    // Only overwrites on-screen state if the server actually had a strictly
+    // newer copy — a failed/missing/stale server response leaves this alone.
+    syncInterviewFromServer(interviewId).then((newerCopy) => {
+      if (newerCopy) setInterview(newerCopy);
     });
   }, [interviewId]);
 
