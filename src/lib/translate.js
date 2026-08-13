@@ -1,5 +1,7 @@
 // direction: "from-en" (English -> target language) or "to-en" (target language -> English)
 export async function translateText(text, direction, language) {
+  if (language.code === "en") return text; // English interview — nothing to translate.
+
   const res = await fetch("/api/translate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

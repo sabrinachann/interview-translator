@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
-import { getInterview, saveInterview } from "../lib/storage.js";
+import React, { useEffect, useState } from "react";
+import { getInterview, saveInterview, syncInterviewFromServer } from "../lib/storage.js";
 import { translateText } from "../lib/translate.js";
-import { speak, startListening, micSupported } from "../lib/speech.js";
+import { speak } from "../lib/speech.js";
 import { getLanguage } from "../data/languages.js";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -13,14 +13,11 @@ export default function Session({ interviewId, onHome }) {
   const [retryTick, setRetryTick] = useState(0);
   const [editingQuestions, setEditingQuestions] = useState(false);
   const [rawQuestions, setRawQuestions] = useState("");
-  const [recTarget, setRecTarget] = useState(null); // {index, kind:'main'|'followup', followupId}
-  const [interim, setInterim] = useState("");
-  const [micError, setMicError] = useState("");
   const [followupDraft, setFollowupDraft] = useState("");
   const [followupTranslating, setFollowupTranslating] = useState(false);
   const [followupError, setFollowupError] = useState("");
   const [manualAnswerDraft, setManualAnswerDraft] = useState({}); // key -> text
-  const controllerRef = useRef(null);
+  const [showOverview, setShowOverview] = useState(false);
 
   const language = getLanguage(interview?.language);
 
@@ -28,6 +25,11 @@ export default function Session({ interviewId, onHome }) {
   useEffect(() => {
     const loaded = getInterview(interviewId);
     setInterview(loaded);
+    // Server is the source of truth when a database is configured — refresh
+    // from it once loaded, so the local cache never silently stays stale.
+    syncInterviewFromServer(interviewId).then((serverCopy) => {
+      if (serverCopy) setInterview(serverCopy);
+    });
   }, [interviewId]);
 
   const update = (updater) => {
@@ -112,38 +114,8 @@ export default function Session({ interviewId, onHome }) {
 
   const goTo = (nextIndex) => {
     if (nextIndex < 0 || nextIndex >= interview.questions.length) return;
-    stopAnyRecording();
     ensureBlockAt(nextIndex);
     update((prev) => ({ ...prev, currentIndex: nextIndex }));
-  };
-
-  // ---- recording ----
-  const stopAnyRecording = () => {
-    controllerRef.current?.stop();
-    controllerRef.current = null;
-    setRecTarget(null);
-    setInterim("");
-  };
-
-  const startRecording = (target) => {
-    setMicError("");
-    setInterim("");
-    setRecTarget(target);
-    controllerRef.current = startListening({
-      lang: language.sttLang,
-      onInterim: (text) => setInterim(text),
-      onError: (err) => {
-        setMicError(err.message);
-        setRecTarget(null);
-      },
-      onFinal: async (finalText) => {
-        setInterim("");
-        setRecTarget(null);
-        controllerRef.current = null;
-        if (!finalText) return;
-        await commitAnswer(target, finalText);
-      },
-    });
   };
 
   const ANSWER_TRANSLATE_ERROR = "⚠ Translation failed — check your connection or API key.";
@@ -315,8 +287,6 @@ export default function Session({ interviewId, onHome }) {
     URL.revokeObjectURL(url);
   };
 
-  const isRecordingMain = recTarget?.kind === "main" && recTarget.index === idx;
-
   return (
     <>
       <div className="it-topbar">
@@ -326,6 +296,9 @@ export default function Session({ interviewId, onHome }) {
         </div>
         <div className="it-btnrow" style={{ marginTop: 0 }}>
           <button className="it-small-link" onClick={onHome}>← Home</button>
+          <button className="it-btn it-btn-ghost" onClick={() => setShowOverview((v) => !v)}>
+            {showOverview ? "Back to question" : "View all questions"}
+          </button>
           <button className="it-btn it-btn-ghost" onClick={downloadTranscript}>
             Download transcript
           </button>
@@ -335,18 +308,55 @@ export default function Session({ interviewId, onHome }) {
       {language.support !== "solid" && (
         <p className="it-mic-warning">
           {language.support === "unreliable"
-            ? `Most browsers don't ship a built-in voice or recognizer for ${language.label} — use the typed-answer option below instead of relying on audio.`
-            : `${language.label} voice/recognition support varies by browser and OS — if audio playback or recording doesn't work, use the typed-answer option below.`}
-        </p>
-      )}
-      {!micSupported && (
-        <p className="it-mic-warning">
-          This browser doesn't support live speech recognition — use Chrome or
-          Edge, or type answers using the text box under each question.
+            ? `Most browsers don't ship a built-in voice for ${language.label} — question playback may not work; typed answers below will.`
+            : `${language.label} voice playback support varies by browser and OS.`}
         </p>
       )}
 
-      {editingQuestions ? (
+      {showOverview ? (
+        <div className="it-card">
+          <span className="it-label">All questions</span>
+          {(() => {
+            const sections = [];
+            interview.questions.forEach((question, i) => {
+              const last = sections[sections.length - 1];
+              if (!last || last.section !== question.section) {
+                sections.push({ section: question.section, items: [] });
+              }
+              sections[sections.length - 1].items.push({ question, i });
+            });
+            return sections.map((group) => (
+              <div key={group.section} className="it-overview-group">
+                <div className="it-section-tag" style={{ marginBottom: 6 }}>{group.section}</div>
+                {group.items.map(({ question, i }) => {
+                  const answered = !!(interview.blocks[i] && interview.blocks[i].answerNative);
+                  return (
+                    <button
+                      key={question.id}
+                      className={`it-overview-row${question.important ? " it-overview-row-important" : ""}`}
+                      onClick={() => {
+                        ensureBlockAt(i);
+                        update((prev) => ({ ...prev, currentIndex: i }));
+                        setShowOverview(false);
+                      }}
+                    >
+                      <span className="it-overview-num">{i + 1}</span>
+                      <span className="it-overview-text">
+                        {question.important && <span className="it-important-mark" title="Important">★</span>}
+                        {question.en}
+                        {question.note && <span className="it-note">{question.note}</span>}
+                      </span>
+                      <span className={`it-overview-status ${answered ? "it-status-done" : "it-status-pending"}`}>
+                        {answered ? "✓" : "○"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ));
+          })()}
+        </div>
+      ) : editingQuestions ? (
         <div className="it-card">
           <span className="it-label">Question order (one per line)</span>
           <textarea
@@ -361,7 +371,7 @@ export default function Session({ interviewId, onHome }) {
           </div>
         </div>
       ) : (
-        <div className="it-card">
+        <div className={`it-card${currentQ?.important ? " it-card-important" : ""}`}>
           {translatingAll ? (
             <p className="it-hint">Translating…</p>
           ) : translateAllError ? (
@@ -383,7 +393,13 @@ export default function Session({ interviewId, onHome }) {
                 )}
               </div>
 
+              {currentQ.important && (
+                <div className="it-important-banner">
+                  <span className="it-important-mark" title="Important">★</span> Important question
+                </div>
+              )}
               <div className="it-q-en"><span className="it-lang-pill it-pill-en">EN</span>{currentQ.en}</div>
+              {currentQ.note && <p className="it-note">{currentQ.note}</p>}
               <div className="it-q-es">
                 <span className="it-lang-pill it-pill-es">{language.code.toUpperCase()}</span>
                 {currentQ.translated || "…"}
@@ -393,23 +409,7 @@ export default function Session({ interviewId, onHome }) {
                 <button className="it-btn it-btn-teal" onClick={() => speak(currentQ.translated, language.ttsLang)} disabled={!currentQ.translated}>
                   🔊 Play question in {language.label}
                 </button>
-                {micSupported && (
-                  <button
-                    className="it-btn it-btn-primary"
-                    onClick={() => (isRecordingMain ? stopAnyRecording() : startRecording({ index: idx, kind: "main" }))}
-                  >
-                    {isRecordingMain ? "■ Stop recording" : currentBlock.answerNative ? "● Re-record answer" : "● Record answer"}
-                  </button>
-                )}
               </div>
-
-              {isRecordingMain && (
-                <div className="it-rec-row">
-                  <span className="it-rec-dot" />
-                  <span className="it-interim">{interim || "listening…"}</span>
-                </div>
-              )}
-              {micError && recTarget === null && <p className="it-error">{micError}</p>}
 
               {currentBlock.answerNative && (
                 <div className="it-answer-box">
@@ -421,7 +421,7 @@ export default function Session({ interviewId, onHome }) {
               <div className="it-manual-row">
                 <input
                   className="it-input"
-                  placeholder={`Or type the answer in ${language.label}…`}
+                  placeholder={`Type the answer in ${language.label}…`}
                   value={manualAnswerDraft["main"] || ""}
                   onChange={(e) => setManualAnswerDraft((prev) => ({ ...prev, main: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && submitManualAnswer({ index: idx, kind: "main" }, "main")}
@@ -435,7 +435,6 @@ export default function Session({ interviewId, onHome }) {
               <div className="it-followups">
                 <span className="it-label">Ad-hoc follow-ups for this question</span>
                 {currentBlock.followups.map((f) => {
-                  const isRecordingThis = recTarget?.kind === "followup" && recTarget.followupId === f.id;
                   const key = `f-${f.id}`;
                   return (
                     <div className="it-followup-item" key={f.id}>
@@ -450,25 +449,7 @@ export default function Session({ interviewId, onHome }) {
                         <button className="it-btn it-btn-teal" onClick={() => speak(f.translated, language.ttsLang)}>
                           🔊 Play
                         </button>
-                        {micSupported && (
-                          <button
-                            className="it-btn it-btn-primary"
-                            onClick={() =>
-                              isRecordingThis
-                                ? stopAnyRecording()
-                                : startRecording({ index: idx, kind: "followup", followupId: f.id })
-                            }
-                          >
-                            {isRecordingThis ? "■ Stop recording" : f.answerNative ? "● Re-record answer" : "● Record answer"}
-                          </button>
-                        )}
                       </div>
-                      {isRecordingThis && (
-                        <div className="it-rec-row">
-                          <span className="it-rec-dot" />
-                          <span className="it-interim">{interim || "listening…"}</span>
-                        </div>
-                      )}
                       {f.answerNative && (
                         <div className="it-answer-box">
                           <div className="it-answer-en">{f.answerEn}</div>
@@ -478,7 +459,7 @@ export default function Session({ interviewId, onHome }) {
                       <div className="it-manual-row">
                         <input
                           className="it-input"
-                          placeholder={`Or type the answer in ${language.label}…`}
+                          placeholder={`Type the answer in ${language.label}…`}
                           value={manualAnswerDraft[key] || ""}
                           onChange={(e) => setManualAnswerDraft((prev) => ({ ...prev, [key]: e.target.value }))}
                           onKeyDown={(e) =>

@@ -64,6 +64,36 @@ npm run build
 npm start   # serves the built frontend + API from :3001 (or $PORT)
 ```
 
+## Server-side interview storage
+
+By default, interviews only live in the phone/browser's localStorage — clear
+your browsing data, open the app in a different browser, or lose the tab in
+certain in-app browsers (some link previews open a throwaway webview) and the
+interview is gone. Setting `DATABASE_URL` turns on a small Postgres database
+that becomes the real copy of every interview; localStorage becomes just a
+fast, always-available cache that resyncs from the database on load.
+
+**Recommended: Neon** (`neon.tech`) — free forever tier, no credit card, and
+setup is just "sign up, click New Project, copy one string." Render's own
+free Postgres tier was discontinued, which is why this uses a separate host.
+
+Step by step:
+1. Go to [neon.tech](https://neon.tech) and sign up (GitHub login is fastest).
+2. Click **New Project**. Any name/region is fine — accept the defaults.
+3. On the project page, find the **Connection string** (sometimes under
+   "Connect" or "Dashboard") — it looks like
+   `postgresql://user:password@ep-something.neon.tech/neondb?sslmode=require`.
+   Copy the whole thing.
+4. Paste it as `DATABASE_URL` in your `.env` file (local dev) **and** as a
+   secret environment variable in Render's dashboard (production) — same as
+   `ANTHROPIC_API_KEY`, never commit it to git.
+5. Restart the server (`npm run dev` locally, or redeploy on Render). The
+   first request creates the `interviews` table automatically — nothing else
+   to run.
+
+If `DATABASE_URL` is left unset, nothing breaks — the app just falls back to
+localStorage-only behavior exactly as before.
+
 ## Deploying (so it works on your iPhone off wifi)
 
 Localhost only reaches devices on the same network. To use this from an iPhone
@@ -78,7 +108,9 @@ git repo, and secrets are set in a web dashboard instead of committed to `.env`.
 3. Build command: `npm install && npm run build`
    Start command: `npm start`
 4. Under Environment, add `ANTHROPIC_API_KEY` (and `ANTHROPIC_MODEL` if you
-   override it) as secret env vars — never commit these to `.env` in git.
+   override it, and `DATABASE_URL` if you set up Neon — see "Server-side
+   interview storage" above) as secret env vars — never commit these to
+   `.env` in git.
 5. Deploy. Render gives you an `https://your-app.onrender.com` URL — open
    that on your iPhone.
 

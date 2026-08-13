@@ -32,6 +32,8 @@ no quotation marks.`;
 
 // Throws on failure — callers decide how to surface that (HTTP error vs script abort).
 export async function translateOne({ text, direction, lang, langLabel, apiKey }) {
+  if (lang === "en") return text; // English interview — nothing to translate.
+
   if (!apiKey) {
     const err = new Error("Missing ANTHROPIC_API_KEY");
     err.code = "MISSING_API_KEY";

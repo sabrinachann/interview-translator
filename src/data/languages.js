@@ -3,6 +3,14 @@
 // actual voice/recognition availability depends on the OS and browser.
 export const LANGUAGES = [
   {
+    code: "en",
+    label: "English (no translation)",
+    ttsLang: "en-US",
+    sttLang: "en-US",
+    support: "solid",
+    notes: "No translation — questions and answers stay in English.",
+  },
+  {
     code: "es",
     label: "Spanish",
     ttsLang: "es-US",
