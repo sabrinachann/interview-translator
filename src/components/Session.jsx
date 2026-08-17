@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { getInterview, saveInterview, syncInterviewFromServer } from "../lib/storage.js";
 import { translateText } from "../lib/translate.js";
-import { speak } from "../lib/speech.js";
+import { speak, stopAudioUnlock } from "../lib/speech.js";
 import { getLanguage } from "../data/languages.js";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -31,6 +31,13 @@ export default function Session({ interviewId, onHome }) {
       if (newerCopy) setInterview(newerCopy);
     });
   }, [interviewId]);
+
+  // Stop the iOS audio-session-unlock loop (see speech.js) once this session
+  // view goes away, so it doesn't stay active/draining battery after the
+  // interviewer leaves.
+  useEffect(() => {
+    return () => stopAudioUnlock();
+  }, []);
 
   const update = (updater) => {
     setInterview((prev) => {
